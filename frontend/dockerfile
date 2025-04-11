@@ -1,0 +1,11 @@
+# Use a lightweight Nginx base image
+FROM nginx:alpine
+
+# Copy your frontend files into the Nginx HTML directory
+COPY . /usr/share/nginx/html
+
+# Expose port 80 (default Nginx port)
+EXPOSE 80
+
+# Start Nginx when the container starts
+CMD ["nginx", "-g", "daemon off;"]

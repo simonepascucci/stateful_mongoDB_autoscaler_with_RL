@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MongoDB Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>MongoDB Dashboard</h1>
+
+    <div class="form-container">
+        <h2>Insert Data</h2>
+        <form id="insert-form">
+            <label for="name">Name:</label>
+            <input type="text" id="name" name="name" required>
+            <button type="submit">Inserisci</button>
+        </form>
+    </div>
+
+    <div class="form-container">
+        <h2>Remove Data</h2>
+        <form id="remove-form">
+            <label for="remove-id">ID:</label>
+            <input type="text" id="remove-id" name="remove-id" required>
+            <button type="submit" id="deleteBtn">Remove</button>
+        </form>
+    </div>
+
+    <div class="form-container">
+        <h2>List Items</h2>
+        <button id="listBtn">List Items</button>
+        <ul id="item-list"></ul>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

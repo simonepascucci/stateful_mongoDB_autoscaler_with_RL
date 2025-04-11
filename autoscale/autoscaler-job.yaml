@@ -1,0 +1,13 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: auto-scaler-job
+spec:
+  template:
+    spec:
+      containers:
+      - name: auto-scaler
+        image: autoscaler-test:latest  # Use your image here (e.g., auto-scaler-script:latest)
+        imagePullPolicy: IfNotPresent
+      restartPolicy: OnFailure
+  backoffLimit: 4
