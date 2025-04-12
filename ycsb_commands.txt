@@ -1,0 +1,22 @@
+kubectl run ycsb-temp \
+  --rm -i --tty \
+  --image=ycsb-image \
+  --image-pull-policy=Never \
+  --restart=Never \
+  --command -- ./bin/ycsb load mongodb -s \
+  -P /opt/ycsb/ycsb-0.17.0/workloads/workloada \
+  -p mongodb.url="mongodb://mongo-0.mongo,mongo-1.mongo,mongo-2.mongo:27017/ycsb?replicaSet=rs0" \
+  > ycsb_load_wla_3_replicas.csv
+
+
+
+kubectl run ycsb-temp \
+  --rm -i --tty \
+  --image=ycsb-image \
+  --image-pull-policy=Never \
+  --restart=Never \
+  --command -- ./bin/ycsb run mongodb -s \
+  -P /opt/ycsb/ycsb-0.17.0/workloads/workloada \
+  -p mongodb.url="mongodb://mongo-0.mongo,mongo-1.mongo,mongo-2.mongo:27017/ycsb?replicaSet=rs0" \
+  > ycsb_run_wla_3_replicas.csv
+
