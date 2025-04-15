@@ -1,0 +1,25 @@
+mongo client connection created with mongodb://mongo-0.mongo,mongo-1.mongo,mongo-2.mongo:27017/ycsb?replicaSet=rs0&readPreference=SecondaryPreferred
+[OVERALL], RunTime(ms), 11038
+[OVERALL], Throughput(ops/sec), 9059.61224859576
+[TOTAL_GCS_Copy], Count, 178
+[TOTAL_GC_TIME_Copy], Time(ms), 58
+[TOTAL_GC_TIME_%_Copy], Time(%), 0.525457510418554
+[TOTAL_GCS_MarkSweepCompact], Count, 0
+[TOTAL_GC_TIME_MarkSweepCompact], Time(ms), 0
+[TOTAL_GC_TIME_%_MarkSweepCompact], Time(%), 0.0
+[TOTAL_GCs], Count, 178
+[TOTAL_GC_TIME], Time(ms), 58
+[TOTAL_GC_TIME_%], Time(%), 0.525457510418554
+[READ], Operations, 100000
+[READ], AverageLatency(us), 106.77126
+[READ], MinLatency(us), 50
+[READ], MaxLatency(us), 68351
+[READ], 95thPercentileLatency(us), 123
+[READ], 99thPercentileLatency(us), 184
+[READ], Return=OK, 100000
+[CLEANUP], Operations, 1
+[CLEANUP], AverageLatency(us), 3259.0
+[CLEANUP], MinLatency(us), 3258
+[CLEANUP], MaxLatency(us), 3259
+[CLEANUP], 95thPercentileLatency(us), 3259
+[CLEANUP], 99thPercentileLatency(us), 3259
