@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-mongos-external
+spec:
+  selector:
+    app: mongodb-mongos
+  type: LoadBalancer
+  ports:
+  - port: 27017
+    targetPort: 27017
