@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-configsvr
+  labels:
+    app: mongodb-configsvr
+spec:
+  ports:
+  - port: 27019
+    targetPort: 27019
+  clusterIP: None
+  selector:
+    app: mongodb-configsvr
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb-configsvr
+spec:
+  serviceName: mongodb-configsvr
+  replicas: 3
+  selector:
+    matchLabels:
+      app: mongodb-configsvr
+  template:
+    metadata:
+      labels:
+        app: mongodb-configsvr
+    spec:
+      containers:
+      - name: mongodb-configsvr
+        image: mongo:6.0
+        command:
+          - mongod
+          - "--configsvr"
+          - "--replSet"
+          - configsvr
+          - "--dbpath"
+          - /data/db
+          - "--bind_ip"
+          - 0.0.0.0
+        ports:
+        - containerPort: 27019
+        volumeMounts:
+        - name: mongodb-configsvr-data
+          mountPath: /data/db
+  volumeClaimTemplates:
+  - metadata:
+      name: mongodb-configsvr-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: mongodb-storage
+      resources:
+        requests:
+          storage: 1Gi

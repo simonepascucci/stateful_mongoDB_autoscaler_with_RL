@@ -1,0 +1,131 @@
+// Connect to MongoDB with authentication and specify database and port and host
+// Show sharding status and configuration
+sh.status()
+
+// Show detailed sharding status
+db.printShardingStatus()
+
+// Get config database information
+use config
+db.shards.find()                    // List all shards
+db.databases.find()                 // List all databases
+db.collections.find()               // List all sharded collections
+db.chunks.find()                    // List all chunks
+db.mongos.find()                    // List mongos instances
+
+// Add a new shard
+sh.addShard("replicaSetName/hostname:port")
+
+// Remove a shard (starts draining process)
+sh.removeShard("shardName")
+
+// Enable sharding for a database
+sh.enableSharding("databaseName")
+
+// Shard a collection
+sh.shardCollection("database.collection", {key: "hashed"})  // Hash sharding
+sh.shardCollection("database.collection", {key: 1})         // Range sharding
+
+// Check if sharding is enabled
+db.serverStatus().sharding
+
+// Check balancer status
+sh.getBalancerState()
+
+// Enable/disable balancer
+sh.setBalancerState(true|false)
+
+// Check if balancer is currently running
+sh.isBalancerRunning()
+
+// Get balancer statistics
+db.getSiblingDB("config").mongos.find({"_id": "balancer"})
+
+// Get chunk distribution
+db.chunks.aggregate([
+    {$group: {_id: "$shard", chunks: {$sum: 1}}},
+    {$sort: {chunks: -1}}
+])
+
+// Move a chunk manually
+sh.moveChunk("database.collection", {key: value}, "destinationShard")
+
+// Split chunks manually
+sh.splitAt("database.collection", {key: value})
+sh.splitFind("database.collection", {key: value})
+
+// Check replica set status
+rs.status()
+
+// Check replica set configuration
+rs.conf()
+
+// Check if current node is primary
+db.isMaster()
+
+// Get replica set statistics
+db.getReplicationInfo()
+
+// Get statistics for a sharded collection
+db.collection.stats()
+
+// Get database statistics
+db.stats()
+
+// Show current operations
+db.currentOp()
+
+// Kill an operation
+db.killOp(opId)
+
+// Add tags to shards
+sh.addShardTag("shard0000", "TAG1")
+
+// Add tag ranges to collections
+sh.addTagRange(
+    "database.collection",
+    {key: minValue},
+    {key: maxValue},
+    "TAG1"
+)
+
+// Check for config server issues
+db.getSiblingDB("config").getCollectionInfos()
+
+// View chunk migration history
+db.changelog.find().pretty()
+
+// Check for orphaned documents
+db.collection.getShardDistribution()
+
+// Get shard connection information
+db.adminCommand({listShards: 1})
+
+// Check network connectivity
+db.adminCommand({ping: 1})
+
+// Switch to admin database
+use admin
+
+// Create user with cluster admin privileges
+db.createUser({
+    user: "clusterAdmin",
+    pwd: "password",
+    roles: ["clusterAdmin"]
+})
+
+// Show current user
+db.runCommand({connectionStatus: 1})
+
+// Get server info
+db.serverStatus()
+
+// Show collection statistics
+db.collection.stats()
+
+// Show index statistics
+db.collection.aggregate([{$indexStats: {}}])
+
+// Get profiling information
+db.getProfilingStatus()
+db.system.profile.find().pretty()

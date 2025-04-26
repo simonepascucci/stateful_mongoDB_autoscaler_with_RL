@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-mongos
+spec:
+  selector:
+    app: mongodb-mongos
+  type: LoadBalancer
+  ports:
+  - port: 27017
+    targetPort: 27017
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb-mongos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mongodb-mongos
+  template:
+    metadata:
+      labels:
+        app: mongodb-mongos
+    spec:
+      containers:
+      - name: mongodb-mongos
+        image: mongo:6.0
+        command:
+        - mongos
+        - "--bind_ip_all"
+        - "--port"
+        - "27017"
+        - "--configdb"
+        - "configsvr/mongodb-configsvr-0.mongodb-configsvr.default.svc.cluster.local:27019,mongodb-configsvr-1.mongodb-configsvr.default.svc.cluster.local:27019,mongodb-configsvr-2.mongodb-configsvr.default.svc.cluster.local:27019"
+        ports:
+        - containerPort: 27017
+
+
