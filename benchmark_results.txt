@@ -1,0 +1,107 @@
+Starting MongoDB Benchmark at 2025-04-28 21:01:11.548852
+Host: 192.168.178.168:32017
+Operations per test: 1000
+Databases to test: ycsb_unsharded, ycsb_sharded
+Fields to query: country, city
+✅ Successfully connected to MongoDB at 192.168.178.168:32017
+
+Running benchmark on ycsb_unsharded, querying field 'country'...
+Found 1000000 documents in collection
+Progress: 100/1000 queries completed
+Progress: 200/1000 queries completed                                 
+Progress: 300/1000 queries completed
+Progress: 400/1000 queries completed
+Progress: 500/1000 queries completed
+Progress: 600/1000 queries completed                                 
+Progress: 700/1000 queries completed
+Progress: 800/1000 queries completed
+Progress: 900/1000 queries completed
+
+==================================================
+BENCHMARK RESULTS: ycsb_unsharded - Field: country
+==================================================
+Successful Operations: 1000                                          
+Total Execution Time: 153.2366 seconds
+Throughput: 6.53 operations/second
+Average Latency: 152.69 ms
+Min Latency: 99.56 ms
+Max Latency: 1028.67 ms                                              
+P95 Latency: 228.98 ms
+==================================================
+                                                                     
+Running benchmark on ycsb_unsharded, querying field 'city'...
+Found 1000000 documents in collection
+Progress: 100/1000 queries completed
+Progress: 200/1000 queries completed
+Progress: 300/1000 queries completed
+Progress: 400/1000 queries completed
+Progress: 500/1000 queries completed
+Progress: 600/1000 queries completed
+Progress: 700/1000 queries completed
+Progress: 800/1000 queries completed                                 
+Progress: 900/1000 queries completed
+
+==================================================
+BENCHMARK RESULTS: ycsb_unsharded - Field: city
+==================================================
+Successful Operations: 1000
+Total Execution Time: 921.3459 seconds
+Throughput: 1.09 operations/second
+Average Latency: 920.57 ms
+Min Latency: 152.50 ms
+Max Latency: 1953.10 ms                                              
+P95 Latency: 1296.62 ms
+==================================================
+                                                                     
+Running benchmark on ycsb_sharded, querying field 'country'...
+Found 1000000 documents in collection
+Progress: 100/1000 queries completed                                 
+Progress: 200/1000 queries completed
+Progress: 300/1000 queries completed
+Progress: 400/1000 queries completed
+Progress: 500/1000 queries completed                                 
+Progress: 600/1000 queries completed
+Progress: 700/1000 queries completed                                 
+Progress: 800/1000 queries completed
+Progress: 900/1000 queries completed
+                                                                     
+==================================================
+BENCHMARK RESULTS: ycsb_sharded - Field: country
+==================================================
+Successful Operations: 1000
+Total Execution Time: 90.0277 seconds
+Throughput: 11.11 operations/second
+Average Latency: 88.24 ms
+Min Latency: 59.15 ms
+Max Latency: 164.35 ms
+P95 Latency: 115.54 ms
+==================================================
+Running benchmark on ycsb_sharded, querying field 'city'...
+Found 1000000 documents in collection
+Progress: 100/1000 queries completed
+Progress: 200/1000 queries completed
+Progress: 300/1000 queries completed
+Progress: 400/1000 queries completed
+Progress: 500/1000 queries completed
+Progress: 600/1000 queries completed
+Progress: 700/1000 queries completed
+Progress: 800/1000 queries completed
+Progress: 900/1000 queries completed
+                                                                     
+==================================================
+BENCHMARK RESULTS: ycsb_sharded - Field: city
+==================================================
+Successful Operations: 1000
+Total Execution Time: 556.1869 seconds
+Throughput: 1.80 operations/second
+Average Latency: 554.70 ms                                           
+Min Latency: 163.74 ms
+Max Latency: 1068.19 ms
+P95 Latency: 737.98 ms                                               
+==================================================
+
+COMPARISON RESULTS:
+==================================================
+Speedup for 'country' queries in ycsb_sharded vs ycsb_unsharded: 1.73x
+Speedup for 'city' queries in ycsb_sharded vs ycsb_unsharded: 1.66x
+==================================================

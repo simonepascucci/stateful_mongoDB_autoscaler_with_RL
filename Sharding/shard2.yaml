@@ -40,7 +40,7 @@ spec:
           - "--port"
           - "27018"
           - "--wiredTigerCacheSizeGB"
-          - "0.25"
+          - "2"
         ports:
         - containerPort: 27018
         volumeMounts:
