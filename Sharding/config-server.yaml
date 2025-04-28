@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
       - name: mongodb-configsvr
-        image: mongo:6.0
+        image: mongo:8.0
         command:
           - mongod
           - "--configsvr"

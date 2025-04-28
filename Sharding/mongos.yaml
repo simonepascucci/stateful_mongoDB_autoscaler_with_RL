@@ -5,10 +5,11 @@ metadata:
 spec:
   selector:
     app: mongodb-mongos
-  type: LoadBalancer
+  type: NodePort
   ports:
   - port: 27017
     targetPort: 27017
+    nodePort: 32017  # Optional: pick a port between 30000-32767
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -26,7 +27,7 @@ spec:
     spec:
       containers:
       - name: mongodb-mongos
-        image: mongo:6.0
+        image: mongo:8.0
         command:
         - mongos
         - "--bind_ip_all"
