@@ -5,6 +5,9 @@ import random
 import statistics
 from datetime import datetime
 import sys
+import json
+from bson import json_util
+import pprint
 
 def test_connection(host, port):
     """Test connection to MongoDB server before running benchmark."""
@@ -36,20 +39,71 @@ def connect_to_mongo(host, port, database):
         print(f"❌ Error connecting to database '{database}': {e}")
         return None
 
+def check_indexes(db, collection_name):
+    """Check and print indexes on the collection."""
+    try:
+        collection = db[collection_name]
+        indexes = list(collection.list_indexes())
+        
+        print(f"\nIndexes on {db.name}.{collection_name}:")
+        print("=" * 50)
+        
+        if not indexes:
+            print("No indexes found.")
+            return
+            
+        for idx, index in enumerate(indexes):
+            print(f"Index {idx+1}: {index['name']}")
+            print(f"  Key: {index['key']}")
+            if 'unique' in index and index['unique']:
+                print("  Type: Unique")
+            elif index['name'] == '_id_':
+                print("  Type: Primary Key")
+            else:
+                print("  Type: Standard")
+                
+        print("=" * 50)
+    except Exception as e:
+        print(f"❌ Error retrieving index information: {e}")
+
+
 def generate_random_value(field_name):
     """Generate random test values based on field type."""
     if field_name == "country":
         # List of sample countries for testing
-        countries = ["Italy", "USA", "France", "Germany", "Spain", "China", "Japan", "Brazil", "India", "Canada"]
+        countries = ["Italy", "USA", "Argentina", "Germany", "New Zealand", "Mexico", "Russia", "Chile", "India", "Philippines"]
         return random.choice(countries)
     elif field_name == "age":
         return str(random.randint(18, 90))
     elif field_name == "city":
-        cities = ["San Jose", "Rome", "New York", "Paris", "Berlin", "Madrid", "Tokyo", "Beijing", "Mumbai", "Toronto"]
+        cities = ["Lincoln", "Tulsa", "Henderson", "Honolulu", "New York", "Seattle", "Dallas", "Irvine", "Nashville", "Denver"]
         return random.choice(cities)
+    elif field_name == "first_name":
+        first_names = ["John", "George", "Mark", "Rebecca", "Rachel", "Amy", "Emma", "Benjamin", "James", "Kevin"]
+        return random.choice(first_names)
     else:
         # Default case for other field types
         return f"test_{random.randint(1, 1000)}"
+
+def get_field_cardinality(db, collection_name, field_name, sample_size=1000):
+    """Estimate field cardinality (number of unique values)."""
+    try:
+        collection = db[collection_name]
+        
+        # Use aggregation to count distinct values
+        pipeline = [
+            {"$sample": {"size": sample_size}},  # Sample to avoid scanning entire collection
+            {"$group": {"_id": f"${field_name}"}},
+            {"$count": "unique_values"}
+        ]
+        
+        result = list(collection.aggregate(pipeline))
+        if result and "unique_values" in result[0]:
+            return result[0]["unique_values"]
+        return "Unknown"
+    except Exception as e:
+        print(f"❌ Error estimating cardinality for {field_name}: {e}")
+        return "Error"
 
 def run_benchmark(db, field_name, num_operations):
     """Run benchmark queries and measure performance."""
@@ -72,9 +126,18 @@ def run_benchmark(db, field_name, num_operations):
         if sample_doc and field_name not in sample_doc:
             print(f"⚠️ Warning: Field '{field_name}' not found in sample document")
             print(f"Available fields: {list(sample_doc.keys())}")
+            return None
+            
+        # Estimate field cardinality
+        """ print(f"Estimating cardinality for field '{field_name}'...")
+        cardinality = get_field_cardinality(db, "usertable", field_name)
+        print(f"Estimated unique values for '{field_name}': {cardinality}") """
+        
     except Exception as e:
         print(f"❌ Error preparing benchmark: {e}")
         return None
+    
+
     
     successful_operations = 0
     for i in range(num_operations):
@@ -123,7 +186,8 @@ def run_benchmark(db, field_name, num_operations):
         "min_latency": min_latency,
         "max_latency": max_latency,
         "p95_latency": p95_latency,
-        "successful_operations": successful_operations
+        "successful_operations": successful_operations,
+        #"cardinality": cardinality
     }
 
 def print_results(db_name, field_name, metrics):
@@ -135,6 +199,8 @@ def print_results(db_name, field_name, metrics):
     print(f"\n{'=' * 50}")
     print(f"BENCHMARK RESULTS: {db_name} - Field: {field_name}")
     print(f"{'=' * 50}")
+    if "cardinality" in metrics:
+        print(f"Estimated Field Cardinality: {metrics['cardinality']}")
     print(f"Successful Operations: {metrics['successful_operations']}")
     print(f"Total Execution Time: {metrics['total_execution_time']:.4f} seconds")
     print(f"Throughput: {metrics['throughput']:.2f} operations/second")
@@ -165,6 +231,9 @@ def run_comparison_benchmark(host, port, databases, field_names, num_operations)
         if db is None:
             print(f"❌ Skipping database {db_name} due to connection error")
             continue
+            
+        # Check indexes on the collection
+        check_indexes(db, "usertable")
         
         for field_name in field_names:
             print(f"\nRunning benchmark on {db_name}, querying field '{field_name}'...")
@@ -180,9 +249,38 @@ def run_comparison_benchmark(host, port, databases, field_names, num_operations)
         if all(db in results for db in databases) and all(field in results.get(databases[0], {}) and field in results.get(databases[1], {}) for field in field_names):
             print("\nCOMPARISON RESULTS:")
             print("=" * 50)
+            
+            # First compare within each database (cardinality effect)
+            for db_name in databases:
+                print(f"\nWithin {db_name}:")
+                # Use the first field as baseline
+                baseline_field = field_names[0]
+                baseline_latency = results[db_name][baseline_field]["avg_latency"]
+                
+                for field_name in field_names[1:]:
+                    field_latency = results[db_name][field_name]["avg_latency"]
+                    speedup = baseline_latency / field_latency
+                    print(f"  '{field_name}' vs '{baseline_field}': {speedup:.2f}x " + 
+                          f"({'faster' if speedup > 1 else 'slower'})")
+            
+            # Then compare between databases (sharding effect)
+            print(f"\nSharding Effect (comparing {databases[1]} vs {databases[0]}):")
             for field_name in field_names:
                 speedup = results[databases[0]][field_name]["avg_latency"] / results[databases[1]][field_name]["avg_latency"]
-                print(f"Speedup for '{field_name}' queries in {databases[1]} vs {databases[0]}: {speedup:.2f}x")
+                print(f"  Field '{field_name}': {speedup:.2f}x speedup with sharding")
+                
+                # Calculate percentage improvement
+                improvement = ((1 - (results[databases[1]][field_name]["avg_latency"] / 
+                                results[databases[0]][field_name]["avg_latency"])) * 100)
+                print(f"    {databases[1]} is {abs(improvement):.2f}% {'faster' if improvement > 0 else 'slower'}")
+            
+            print("\nAnalysis:")
+            for field_name in field_names:
+                if field_name == "country":
+                    print(f"  '{field_name}' (shard key): Benefits from both targeted routing and index usage in sharded DB")
+                else:
+                    print(f"  '{field_name}' (non-shard key): Benefits from parallel execution across shards")
+                    
             print("=" * 50)
     except Exception as e:
         print(f"❌ Error computing comparison: {e}")
@@ -195,8 +293,8 @@ if __name__ == "__main__":
     MONGO_PORT = 32017
     DATABASES = ["ycsb_unsharded", "ycsb_sharded"]
     
-    # Test both shard key and non-shard key fields
-    FIELDS_TO_TEST = ["country", "city"]  # country is shard key, city is not
+    # Test different fields including shard key and non-shard key fields
+    FIELDS_TO_TEST = ["first_name", "city"]  # first_name is shard key, others are not
     
     # Number of operations for each test
     NUM_OPERATIONS = 1000

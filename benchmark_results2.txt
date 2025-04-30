@@ -1,0 +1,158 @@
+Starting MongoDB Benchmark at 2025-04-29 12:58:59.162975
+Host: 192.168.178.168:32017
+Operations per test: 1000
+Databases to test: ycsb_unsharded, ycsb_sharded
+Fields to query: first_name, city
+✅ Successfully connected to MongoDB at 192.168.178.168:32017
+
+Indexes on ycsb_unsharded.usertable:
+==================================================
+Index 1: _id_
+  Key: SON([('_id', 1)])
+  Type: Primary Key
+==================================================
+
+Running benchmark on ycsb_unsharded, querying field 'first_name'...
+Found 1000000 documents in collection
+Estimating cardinality for field 'first_name'...
+Estimated unique values for 'first_name': 100
+❌ Error retrieving explain plan: Cursor.explain() takes 1 positional argument but 2 were given
+Progress: 100/1000 queries completed
+Progress: 200/1000 queries completed
+Progress: 300/1000 queries completed
+Progress: 400/1000 queries completed
+Progress: 500/1000 queries completed
+Progress: 600/1000 queries completed
+Progress: 700/1000 queries completed
+Progress: 800/1000 queries completed
+Progress: 900/1000 queries completed
+
+==================================================
+BENCHMARK RESULTS: ycsb_unsharded - Field: first_name
+==================================================
+Estimated Field Cardinality: 100
+Successful Operations: 1000
+Total Execution Time: 139.4100 seconds
+Throughput: 7.17 operations/second
+Average Latency: 137.51 ms
+Min Latency: 120.76 ms
+Max Latency: 196.85 ms                                               
+P95 Latency: 158.09 ms
+==================================================
+
+
+Running benchmark on ycsb_unsharded, querying field 'city'...
+Found 1000000 documents in collection
+Estimating cardinality for field 'city'...
+Estimated unique values for 'city': 98                               
+❌ Error retrieving explain plan: Cursor.explain() takes 1 positional argument but 2 were given                                           Progress: 100/1000 queries completed
+Progress: 200/1000 queries completed
+Progress: 300/1000 queries completed
+Progress: 400/1000 queries completed
+Progress: 500/1000 queries completed
+Progress: 600/1000 queries completed
+Progress: 700/1000 queries completed
+Progress: 800/1000 queries completed
+Progress: 900/1000 queries completed
+
+==================================================                   
+BENCHMARK RESULTS: ycsb_unsharded - Field: city                      
+==================================================
+Estimated Field Cardinality: 98
+Successful Operations: 1000
+Total Execution Time: 140.5953 seconds
+Throughput: 7.11 operations/second
+Average Latency: 139.83 ms
+Min Latency: 121.32 ms
+Max Latency: 360.07 ms
+P95 Latency: 162.33 ms
+==================================================
+
+
+Indexes on ycsb_sharded.usertable:
+==================================================
+Index 1: _id_
+  Key: SON([('_id', 1)])
+  Type: Primary Key
+Index 2: first_name_hashed
+  Key: SON([('first_name', 'hashed')])
+  Type: Standard
+==================================================
+
+Running benchmark on ycsb_sharded, querying field 'first_name'...
+Found 1000000 documents in collection
+Estimating cardinality for field 'first_name'...
+Estimated unique values for 'first_name': 100
+❌ Error retrieving explain plan: Cursor.explain() takes 1 positional argument but 2 were given
+Progress: 100/1000 queries completed
+Progress: 200/1000 queries completed
+Progress: 300/1000 queries completed
+Progress: 400/1000 queries completed
+Progress: 500/1000 queries completed
+Progress: 600/1000 queries completed                                 
+Progress: 700/1000 queries completed                                 
+Progress: 800/1000 queries completed                                 
+Progress: 900/1000 queries completed
+
+==================================================
+BENCHMARK RESULTS: ycsb_sharded - Field: first_name
+==================================================
+Estimated Field Cardinality: 100
+Successful Operations: 1000
+Total Execution Time: 46.3158 seconds                                
+Throughput: 21.59 operations/second                                  
+Average Latency: 44.86 ms                                            
+Min Latency: 34.17 ms
+Max Latency: 80.72 ms
+P95 Latency: 53.81 ms
+==================================================
+
+
+Running benchmark on ycsb_sharded, querying field 'city'...
+Found 1000000 documents in collection
+Estimating cardinality for field 'city'...
+Estimated unique values for 'city': 98
+❌ Error retrieving explain plan: Cursor.explain() takes 1 positional argument but 2 were given
+Progress: 100/1000 queries completed
+Progress: 200/1000 queries completed
+Progress: 300/1000 queries completed
+Progress: 400/1000 queries completed
+Progress: 500/1000 queries completed
+Progress: 600/1000 queries completed
+Progress: 700/1000 queries completed
+Progress: 800/1000 queries completed
+Progress: 900/1000 queries completed
+
+==================================================
+BENCHMARK RESULTS: ycsb_sharded - Field: city
+==================================================
+Estimated Field Cardinality: 98
+Successful Operations: 1000
+Total Execution Time: 85.3566 seconds
+Throughput: 10.91 operations/second
+Average Latency: 90.76 ms
+Min Latency: 77.90 ms
+Max Latency: 576.72 ms
+P95 Latency: 103.50 ms
+==================================================
+
+
+COMPARISON RESULTS:
+==================================================
+
+Within ycsb_unsharded:
+  'city' vs 'first_name': 0.98x (slower)
+
+Within ycsb_sharded:
+  'city' vs 'first_name': 0.30x (slower)
+
+Sharding Effect (comparing ycsb_sharded vs ycsb_unsharded):
+  Field 'first_name': 3.07x speedup with sharding
+  Field 'city': 1.66x speedup with sharding
+
+Analysis:
+  'first_name' (non-shard key): Benefits from parallel execution across shards
+  'city' (non-shard key): Benefits from parallel execution across shards
+==================================================
+
+✅ Benchmark completed successfully!
