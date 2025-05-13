@@ -129,3 +129,28 @@ db.collection.aggregate([{$indexStats: {}}])
 // Get profiling information
 db.getProfilingStatus()
 db.system.profile.find().pretty()
+
+//Reshard to add/remove shard
+db.adminCommand( 
+ { 
+    reshardCollection: "ycsb_sharded.usertable", 
+    key: { country: "hashed" }, 
+    forceRedistribution: true, 
+    numInitialChunks: 34 
+ } 
+)
+
+
+
+// Get Re-Sharding informations
+db.getSiblingDB("admin").aggregate(
+   [
+     { $currentOp: { allUsers: true, localOps: false } },
+     {
+       $match: {
+         type: "op",
+         "originatingCommand.reshardCollection": 'ycsb_sharded.usertable'
+       }
+     }
+   ]
+)

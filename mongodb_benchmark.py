@@ -291,10 +291,10 @@ if __name__ == "__main__":
     # Configuration
     MONGO_HOST = "192.168.178.168"
     MONGO_PORT = 32017
-    DATABASES = ["ycsb_unsharded", "ycsb_sharded"]
+    DATABASES = ["ycsb_sharded"]
     
     # Test different fields including shard key and non-shard key fields
-    FIELDS_TO_TEST = ["first_name", "city"]  # first_name is shard key, others are not
+    FIELDS_TO_TEST = ["country", "city"]  # first_name is shard key, others are not
     
     # Number of operations for each test
     NUM_OPERATIONS = 1000
