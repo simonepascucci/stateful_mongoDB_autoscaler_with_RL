@@ -1,52 +1,52 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: mongodb-configsvr
-  labels:
-    app: mongodb-configsvr
+  name: mongodb-shard3
 spec:
-  ports:
-  - port: 27019
-    targetPort: 27019
-  clusterIP: None
   selector:
-    app: mongodb-configsvr
+    app: mongodb-shard3
+  clusterIP: None
+  ports:
+  - port: 27018
+    targetPort: 27018
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: mongodb-configsvr
+  name: mongodb-shard3
 spec:
-  serviceName: mongodb-configsvr
+  serviceName: mongodb-shard3
   replicas: 1
   selector:
     matchLabels:
-      app: mongodb-configsvr
+      app: mongodb-shard3
   template:
     metadata:
       labels:
-        app: mongodb-configsvr
+        app: mongodb-shard3
     spec:
       containers:
-      - name: mongodb-configsvr
+      - name: mongodb-shard3
         image: mongo:8.0
         command:
           - mongod
-          - "--configsvr"
+          - "--shardsvr"
           - "--replSet"
-          - configsvr
+          - shard3
           - "--dbpath"
           - /data/db
           - "--bind_ip"
           - 0.0.0.0
+          - "--port"
+          - "27018"
         ports:
-        - containerPort: 27019
+        - containerPort: 27018
         volumeMounts:
-        - name: mongodb-configsvr-data
+        - name: mongodb-shard3-data
           mountPath: /data/db
   volumeClaimTemplates:
   - metadata:
-      name: mongodb-configsvr-data
+      name: mongodb-shard3-data
     spec:
       accessModes: [ "ReadWriteOnce" ]
       storageClassName: mongodb-storage

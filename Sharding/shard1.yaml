@@ -16,7 +16,7 @@ metadata:
   name: mongodb-shard1
 spec:
   serviceName: mongodb-shard1
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: mongodb-shard1
@@ -39,8 +39,6 @@ spec:
           - 0.0.0.0
           - "--port"
           - "27018"
-          - "--wiredTigerCacheSizeGB"
-          - "2"
         ports:
         - containerPort: 27018
         volumeMounts:
