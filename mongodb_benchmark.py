@@ -8,6 +8,9 @@ import sys
 import json
 from bson import json_util
 import pprint
+import threading
+import concurrent.futures
+import queue
 
 def test_connection(host, port):
     """Test connection to MongoDB server before running benchmark."""
@@ -32,39 +35,12 @@ def connect_to_mongo(host, port, database):
         db = client[database]
         # Verify database and collection existence
         collection_names = db.list_collection_names()
-        if "usertable" not in collection_names:
-            print(f"⚠️ Warning: 'usertable' collection not found in database '{database}'")
+        if "sharded" not in collection_names:
+            print(f"⚠️ Warning: 'sharded' collection not found in database '{database}'")
         return db
     except Exception as e:
         print(f"❌ Error connecting to database '{database}': {e}")
         return None
-
-def check_indexes(db, collection_name):
-    """Check and print indexes on the collection."""
-    try:
-        collection = db[collection_name]
-        indexes = list(collection.list_indexes())
-        
-        print(f"\nIndexes on {db.name}.{collection_name}:")
-        print("=" * 50)
-        
-        if not indexes:
-            print("No indexes found.")
-            return
-            
-        for idx, index in enumerate(indexes):
-            print(f"Index {idx+1}: {index['name']}")
-            print(f"  Key: {index['key']}")
-            if 'unique' in index and index['unique']:
-                print("  Type: Unique")
-            elif index['name'] == '_id_':
-                print("  Type: Primary Key")
-            else:
-                print("  Type: Standard")
-                
-        print("=" * 50)
-    except Exception as e:
-        print(f"❌ Error retrieving index information: {e}")
 
 
 def generate_random_value(field_name):
@@ -105,41 +81,13 @@ def get_field_cardinality(db, collection_name, field_name, sample_size=1000):
         print(f"❌ Error estimating cardinality for {field_name}: {e}")
         return "Error"
 
-def run_benchmark(db, field_name, num_operations):
-    """Run benchmark queries and measure performance."""
-    collection = db["usertable"]
-    
-    # Initialize metrics
+def thread_worker(thread_id, db, field_name, num_operations, results_queue, progress_queue):
+    """Worker function for each thread to execute queries."""
+    collection = db["sharded"]
     latencies = []
-    total_start_time = time.time()
-    
-    try:
-        # Verify collection has data
-        count = collection.count_documents({})
-        if count == 0:
-            print(f"⚠️ Warning: Collection 'usertable' is empty")
-            return None
-        print(f"Found {count} documents in collection")
-        
-        # Check if the field exists in the collection
-        sample_doc = collection.find_one()
-        if sample_doc and field_name not in sample_doc:
-            print(f"⚠️ Warning: Field '{field_name}' not found in sample document")
-            print(f"Available fields: {list(sample_doc.keys())}")
-            return None
-            
-        # Estimate field cardinality
-        """ print(f"Estimating cardinality for field '{field_name}'...")
-        cardinality = get_field_cardinality(db, "usertable", field_name)
-        print(f"Estimated unique values for '{field_name}': {cardinality}") """
-        
-    except Exception as e:
-        print(f"❌ Error preparing benchmark: {e}")
-        return None
-    
-
-    
+    thread_start_time = time.time()
     successful_operations = 0
+    
     for i in range(num_operations):
         try:
             # Generate a random value for the query
@@ -158,26 +106,148 @@ def run_benchmark(db, field_name, num_operations):
             latencies.append(latency)
             successful_operations += 1
             
-            # Show progress for long-running tests
-            if i % 100 == 0 and i > 0:
-                print(f"Progress: {i}/{num_operations} queries completed")
+            # Report progress occasionally
+            if i % 10 == 0:
+                progress_queue.put((thread_id, i, num_operations))
                 
         except Exception as e:
-            print(f"❌ Error during query {i+1}: {e}")
+            print(f"❌ Thread {thread_id}: Error during query {i+1}: {e}")
     
-    if not latencies:
-        print("❌ No successful operations completed")
-        return None
+    # Calculate thread execution time
+    thread_execution_time = time.time() - thread_start_time
+    
+    # Put results in the queue
+    results_queue.put({
+        "thread_id": thread_id,
+        "latencies": latencies,
+        "execution_time": thread_execution_time,
+        "successful_operations": successful_operations
+    })
+    
+    # Final progress update
+    progress_queue.put((thread_id, num_operations, num_operations))
+
+def progress_monitor(progress_queue, num_threads, total_operations):
+    """Monitor and display progress across all threads."""
+    thread_progress = {i: 0 for i in range(num_threads)}
+    last_report_time = time.time()
+    report_interval = 2.0  # seconds between progress reports
+    
+    try:
+        while sum(thread_progress.values()) < total_operations:
+            try:
+                thread_id, current, total = progress_queue.get(timeout=0.5)
+                thread_progress[thread_id] = current
+                
+                # Report progress at intervals
+                current_time = time.time()
+                if current_time - last_report_time > report_interval:
+                    completed = sum(thread_progress.values())
+                    percentage = (completed / total_operations) * 100
+                    print(f"Progress: {completed}/{total_operations} operations ({percentage:.1f}%)")
+                    last_report_time = current_time
+                    
+                progress_queue.task_done()
+            except queue.Empty:
+                continue
+    except KeyboardInterrupt:
+        print("\nProgress monitoring interrupted")
+    
+    # Final progress report
+    completed = sum(thread_progress.values())
+    percentage = (completed / total_operations) * 100
+    print(f"Final progress: {completed}/{total_operations} operations ({percentage:.1f}%)")
+
+def run_benchmark(db, field_name, num_operations, num_threads):
+    """Run benchmark queries across multiple threads and measure performance."""
+    collection = db["sharded"]
+    
+    # Initialize metrics
+    total_start_time = time.time()
+    
+    try:
+        # Verify collection has data
+        count = collection.count_documents({})
+        if count == 0:
+            print(f"⚠️ Warning: Collection 'sharded' is empty")
+            return None
+        print(f"Found {count} documents in collection")
         
+        # Check if the field exists in the collection
+        sample_doc = collection.find_one()
+        if sample_doc and field_name not in sample_doc:
+            print(f"⚠️ Warning: Field '{field_name}' not found in sample document")
+            print(f"Available fields: {list(sample_doc.keys())}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Error preparing benchmark: {e}")
+        return None
+    
+    # Calculate operations per thread
+    ops_per_thread = num_operations // num_threads
+    remainder = num_operations % num_threads
+    
+    print(f"Starting benchmark with {num_threads} threads")
+    print(f"Each thread will perform {ops_per_thread} operations")
+    if remainder > 0:
+        print(f"First thread will perform {ops_per_thread + remainder} operations to complete the total")
+    
+    # Create queues for results and progress
+    results_queue = queue.Queue()
+    progress_queue = queue.Queue()
+    
+    # Start progress monitor in a separate thread
+    progress_thread = threading.Thread(
+        target=progress_monitor, 
+        args=(progress_queue, num_threads, num_operations)
+    )
+    progress_thread.daemon = True
+    progress_thread.start()
+    
+    # Start worker threads
+    threads = []
+    for i in range(num_threads):
+        # First thread gets any remainder operations
+        thread_ops = ops_per_thread + remainder if i == 0 else ops_per_thread
+        remainder = 0  # Reset remainder after first thread
+        
+        thread = threading.Thread(
+            target=thread_worker,
+            args=(i, db, field_name, thread_ops, results_queue, progress_queue)
+        )
+        threads.append(thread)
+        thread.start()
+    
+    # Wait for all threads to complete
+    for thread in threads:
+        thread.join()
+    
+    # Wait for progress monitor to finish
+    progress_queue.join()
+    
     # Calculate total execution time
     total_execution_time = time.time() - total_start_time
     
+    # Collect results
+    all_latencies = []
+    successful_operations = 0
+    
+    while not results_queue.empty():
+        result = results_queue.get()
+        all_latencies.extend(result["latencies"])
+        successful_operations += result["successful_operations"]
+    
+    if not all_latencies:
+        print("❌ No successful operations completed")
+        return None
+    
     # Calculate metrics
     throughput = successful_operations / total_execution_time
-    avg_latency = statistics.mean(latencies)
-    min_latency = min(latencies)
-    max_latency = max(latencies)
-    p95_latency = sorted(latencies)[int(len(latencies) * 0.95)]
+    avg_latency = statistics.mean(all_latencies)
+    min_latency = min(all_latencies)
+    max_latency = max(all_latencies)
+    p95_latency = sorted(all_latencies)[int(len(all_latencies) * 0.95)]
     
     return {
         "total_execution_time": total_execution_time,
@@ -187,20 +257,19 @@ def run_benchmark(db, field_name, num_operations):
         "max_latency": max_latency,
         "p95_latency": p95_latency,
         "successful_operations": successful_operations,
-        #"cardinality": cardinality
+        "num_threads": num_threads
     }
 
-def print_results(db_name, field_name, metrics):
+def print_results(field_name, metrics):
     """Print benchmark results in a readable format."""
     if not metrics:
-        print(f"\n⚠️ No results available for {db_name} - Field: {field_name}")
+        print(f"\n⚠️ No results available for Field: {field_name}")
         return
         
     print(f"\n{'=' * 50}")
-    print(f"BENCHMARK RESULTS: {db_name} - Field: {field_name}")
+    print(f"BENCHMARK RESULTS - Field: {field_name}")
     print(f"{'=' * 50}")
-    if "cardinality" in metrics:
-        print(f"Estimated Field Cardinality: {metrics['cardinality']}")
+    print(f"Threads Used: {metrics['num_threads']}")
     print(f"Successful Operations: {metrics['successful_operations']}")
     print(f"Total Execution Time: {metrics['total_execution_time']:.4f} seconds")
     print(f"Throughput: {metrics['throughput']:.2f} operations/second")
@@ -210,14 +279,15 @@ def print_results(db_name, field_name, metrics):
     print(f"P95 Latency: {metrics['p95_latency'] * 1000:.2f} ms")
     print(f"{'=' * 50}\n")
 
-def run_comparison_benchmark(host, port, databases, field_names, num_operations):
-    """Run benchmarks comparing different databases and query fields."""
+def run_mongodb_benchmark(host, port, database, field_names, num_operations, num_threads):
+    """Run benchmarks on MongoDB for specified fields using multiple threads."""
     results = {}
     
     print(f"\nStarting MongoDB Benchmark at {datetime.now()}")
     print(f"Host: {host}:{port}")
+    print(f"Database: {database}")
     print(f"Operations per test: {num_operations}")
-    print(f"Databases to test: {', '.join(databases)}")
+    print(f"Number of threads: {num_threads}")
     print(f"Fields to query: {', '.join(field_names)}")
     
     # Test connection before proceeding
@@ -225,88 +295,59 @@ def run_comparison_benchmark(host, port, databases, field_names, num_operations)
         print("❌ Connection test failed. Exiting.")
         return None
     
-    for db_name in databases:
-        results[db_name] = {}
-        db = connect_to_mongo(host, port, db_name)
-        if db is None:
-            print(f"❌ Skipping database {db_name} due to connection error")
-            continue
-            
-        # Check indexes on the collection
-        check_indexes(db, "usertable")
+    db = connect_to_mongo(host, port, database)
+    if db is None:
+        print(f"❌ Skipping benchmark due to connection error")
+        return None
         
-        for field_name in field_names:
-            print(f"\nRunning benchmark on {db_name}, querying field '{field_name}'...")
-            metrics = run_benchmark(db, field_name, num_operations)
-            if metrics:
-                results[db_name][field_name] = metrics
-                print_results(db_name, field_name, metrics)
-            else:
-                print(f"❌ Benchmark failed for {db_name}, field {field_name}")
-    
-    # Compare results between databases if both were successful
-    try:
-        if all(db in results for db in databases) and all(field in results.get(databases[0], {}) and field in results.get(databases[1], {}) for field in field_names):
-            print("\nCOMPARISON RESULTS:")
-            print("=" * 50)
-            
-            # First compare within each database (cardinality effect)
-            for db_name in databases:
-                print(f"\nWithin {db_name}:")
-                # Use the first field as baseline
-                baseline_field = field_names[0]
-                baseline_latency = results[db_name][baseline_field]["avg_latency"]
-                
-                for field_name in field_names[1:]:
-                    field_latency = results[db_name][field_name]["avg_latency"]
-                    speedup = baseline_latency / field_latency
-                    print(f"  '{field_name}' vs '{baseline_field}': {speedup:.2f}x " + 
-                          f"({'faster' if speedup > 1 else 'slower'})")
-            
-            # Then compare between databases (sharding effect)
-            print(f"\nSharding Effect (comparing {databases[1]} vs {databases[0]}):")
-            for field_name in field_names:
-                speedup = results[databases[0]][field_name]["avg_latency"] / results[databases[1]][field_name]["avg_latency"]
-                print(f"  Field '{field_name}': {speedup:.2f}x speedup with sharding")
-                
-                # Calculate percentage improvement
-                improvement = ((1 - (results[databases[1]][field_name]["avg_latency"] / 
-                                results[databases[0]][field_name]["avg_latency"])) * 100)
-                print(f"    {databases[1]} is {abs(improvement):.2f}% {'faster' if improvement > 0 else 'slower'}")
-            
-            print("\nAnalysis:")
-            for field_name in field_names:
-                if field_name == "country":
-                    print(f"  '{field_name}' (shard key): Benefits from both targeted routing and index usage in sharded DB")
-                else:
-                    print(f"  '{field_name}' (non-shard key): Benefits from parallel execution across shards")
-                    
-            print("=" * 50)
-    except Exception as e:
-        print(f"❌ Error computing comparison: {e}")
+    for field_name in field_names:
+        print(f"\nRunning benchmark on field '{field_name}'...")
+        metrics = run_benchmark(db, field_name, num_operations, num_threads)
+        if metrics:
+            results[field_name] = metrics
+            print_results(field_name, metrics)
+        else:
+            print(f"❌ Benchmark failed for field {field_name}")
     
     return results
+
+def get_thread_count():
+    """Get number of threads from user, between 1 and 128."""
+    while True:
+        try:
+            thread_count = input("Enter number of threads to use (1-128): ")
+            threads = int(thread_count)
+            if 1 <= threads <= 128:
+                return threads
+            else:
+                print("Please enter a number between 1 and 128")
+        except ValueError:
+            print("Please enter a valid integer")
 
 if __name__ == "__main__":
     # Configuration
     MONGO_HOST = "192.168.178.168"
     MONGO_PORT = 32017
-    DATABASES = ["ycsb_sharded"]
+    DATABASE = "ycsb_sharded"
     
-    # Test different fields including shard key and non-shard key fields
-    FIELDS_TO_TEST = ["country", "city"]  # first_name is shard key, others are not
+    # Test different fields
+    FIELDS_TO_TEST = ["country", "city"]
     
     # Number of operations for each test
     NUM_OPERATIONS = 1000
     
+    # Get number of threads from user
+    num_threads = get_thread_count()
+    
     try:
         # Run the benchmark
-        results = run_comparison_benchmark(
+        results = run_mongodb_benchmark(
             MONGO_HOST, 
             MONGO_PORT, 
-            DATABASES, 
+            DATABASE, 
             FIELDS_TO_TEST, 
-            NUM_OPERATIONS
+            NUM_OPERATIONS,
+            num_threads
         )
 
         if results:
