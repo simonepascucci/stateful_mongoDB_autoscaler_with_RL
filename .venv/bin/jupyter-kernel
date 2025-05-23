@@ -1,4 +1,4 @@
-#!/home/simone/Desktop/stateful_mongoDB_autoscaler_with_RL/.venv/bin/python3
+#!/home/simone/Desktop/stateful_mongoDB_autoscaler_with_RL/.venv/bin/python
 # -*- coding: utf-8 -*-
 import re
 import sys
