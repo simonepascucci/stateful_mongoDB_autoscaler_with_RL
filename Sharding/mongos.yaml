@@ -5,11 +5,11 @@ metadata:
 spec:
   selector:
     app: mongodb-mongos
-  type: NodePort
+  type: LoadBalancer #NodePort
   ports:
   - port: 27017
     targetPort: 27017
-    nodePort: 32017  # Optional: pick a port between 30000-32767
+    #nodePort: 32017  # Optional: pick a port between 30000-32767
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -34,7 +34,7 @@ spec:
         - "--port"
         - "27017"
         - "--configdb"
-        - "configsvr/mongodb-configsvr-0.mongodb-configsvr.default.svc.cluster.local:27019,mongodb-configsvr-1.mongodb-configsvr.default.svc.cluster.local:27019,mongodb-configsvr-2.mongodb-configsvr.default.svc.cluster.local:27019"
+        - "configsvr/mongodb-configsvr-0.mongodb-configsvr.default.svc.cluster.local:27019"
         ports:
         - containerPort: 27017
 

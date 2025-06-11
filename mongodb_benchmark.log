@@ -1,0 +1,25 @@
+2025-06-10 21:32:49,007 - INFO - Connecting to MongoDB: mongodb://localhost:27017
+2025-06-10 21:32:49,059 - INFO - Successfully connected to database 'ycsb_sharded', collection 'U1'
+2025-06-10 21:32:49,060 - INFO - Loaded 38 batches from CSV trace file
+2025-06-10 21:41:58,675 - INFO - Benchmark interrupted by user
+2025-06-10 21:41:58,679 - INFO - MongoDB connection closed
+2025-06-10 21:58:02,482 - INFO - Connecting to MongoDB: mongodb://localhost:27017
+2025-06-10 21:58:02,562 - INFO - Successfully connected to database 'ycsb_sharded', collection 'U1'
+2025-06-10 21:58:02,564 - INFO - Loaded 38 batches from CSV trace file
+2025-06-10 21:58:49,154 - INFO - Benchmark interrupted by user
+2025-06-10 21:58:49,172 - INFO - MongoDB connection closed
+2025-06-10 21:59:38,382 - INFO - Connecting to MongoDB: mongodb://localhost:27017
+2025-06-10 21:59:38,440 - INFO - Successfully connected to database 'ycsb_sharded', collection 'usertable'
+2025-06-10 21:59:38,441 - INFO - Loaded 38 batches from CSV trace file
+2025-06-10 22:00:09,317 - INFO - Benchmark interrupted by user
+2025-06-10 22:00:09,329 - INFO - MongoDB connection closed
+2025-06-11 14:23:28,802 - INFO - Connecting to MongoDB: mongodb://localhost:27017
+2025-06-11 14:23:28,824 - INFO - Successfully connected to database 'ycsb_sharded', collection 'U1'
+2025-06-11 14:23:28,830 - INFO - Loaded 804 batches from CSV trace file
+2025-06-11 14:24:13,191 - INFO - Benchmark interrupted by user
+2025-06-11 14:24:13,195 - INFO - MongoDB connection closed
+2025-06-11 14:24:18,022 - INFO - Connecting to MongoDB: mongodb://localhost:27017
+2025-06-11 14:24:18,040 - INFO - Successfully connected to database 'ycsb_sharded', collection 'usertable'
+2025-06-11 14:24:18,045 - INFO - Loaded 804 batches from CSV trace file
+2025-06-11 14:25:08,126 - INFO - Benchmark interrupted by user
+2025-06-11 14:25:08,130 - INFO - MongoDB connection closed

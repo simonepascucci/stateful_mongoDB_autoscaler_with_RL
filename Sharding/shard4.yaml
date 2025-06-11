@@ -16,7 +16,7 @@ metadata:
   name: mongodb-shard4
 spec:
   serviceName: mongodb-shard4
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: mongodb-shard4
