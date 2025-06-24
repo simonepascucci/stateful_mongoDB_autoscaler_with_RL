@@ -5,7 +5,7 @@ def scale_timestamps_auto_duration(input_csv_path, target_duration_hours):
     """
     Scales the 'ts_submit_dt' column in a DataFrame to a new duration
     by automatically detecting the original total duration and preserving
-    relative time differences.
+    relative time differences. Replaces the original column and sorts the result.
 
     Args:
         input_csv_path (str): Path to the input CSV file.
@@ -13,8 +13,8 @@ def scale_timestamps_auto_duration(input_csv_path, target_duration_hours):
                                         timestamps in hours.
 
     Returns:
-        pandas.DataFrame: The DataFrame with the new 'ts_submit_dt2' column,
-                          or None if an error occurs.
+        pandas.DataFrame: The DataFrame with the scaled 'ts_submit_dt' column,
+                          sorted by timestamp with reset index, or None if an error occurs.
     """
     try:
         df = pd.read_csv(input_csv_path)
@@ -37,12 +37,11 @@ def scale_timestamps_auto_duration(input_csv_path, target_duration_hours):
 
     # Handle case where original duration is zero (e.g., only one timestamp or all timestamps are identical)
     if original_total_elapsed_seconds == 0:
-        print("Warning: Original total duration is zero. 'ts_submit_dt2' will be identical to 'ts_submit_dt'.")
-        df['ts_submit_dt2'] = df['ts_submit_dt']
+        print("Warning: Original total duration is zero. 'ts_submit_dt' will remain unchanged.")
         return df
 
     # Calculate the elapsed time from the minimum 'ts_submit_dt' for each row
-    df['elapsed_time'] = df['ts_submit_dt'] - min_ts_submit_dt
+    elapsed_time = df['ts_submit_dt'] - min_ts_submit_dt
 
     # Convert target duration to seconds
     target_duration_seconds = target_duration_hours * 3600
@@ -51,11 +50,13 @@ def scale_timestamps_auto_duration(input_csv_path, target_duration_hours):
     scaling_factor = target_duration_seconds / original_total_elapsed_seconds
 
     # Apply the scaling factor to the elapsed time
-    df['scaled_elapsed_time'] = df['elapsed_time'] * scaling_factor
+    scaled_elapsed_time = elapsed_time * scaling_factor
 
-    # Convert the scaled elapsed time back to datetime objects for 'ts_submit_dt2',
-    # starting from the minimum 'ts_submit_dt'
-    df['ts_submit_dt2'] = min_ts_submit_dt + df['scaled_elapsed_time']
+    # Replace the original 'ts_submit_dt' with scaled timestamps
+    df['ts_submit_dt'] = min_ts_submit_dt + scaled_elapsed_time
+
+    # Sort by the new timestamp column and reset index
+    df = df.sort_values('ts_submit_dt').reset_index(drop=True)
 
     return df
 
@@ -83,12 +84,11 @@ if __name__ == "__main__":
 
     if scaled_df is not None:
         print("\n--- Scaling Results ---")
-        print("Original and Scaled Timestamps (first 5 rows):")
-        print(scaled_df[['ts_submit_dt', 'ts_submit_dt2']].head().to_markdown(index=False))
+        print("Scaled Timestamps (first 5 rows):")
+        print(scaled_df[['ts_submit_dt']].head().to_markdown(index=False))
         if len(scaled_df) > 5:
             print("...")
-            print(scaled_df[['ts_submit_dt', 'ts_submit_dt2']].tail().to_markdown(index=False))
-
+            print(scaled_df[['ts_submit_dt']].tail().to_markdown(index=False))
 
         output_file = "output_scaled_timestamps.csv"
         scaled_df.to_csv(output_file, index=False)

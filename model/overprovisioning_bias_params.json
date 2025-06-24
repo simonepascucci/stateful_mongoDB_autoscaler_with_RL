@@ -1,0 +1,7 @@
+{
+  "low_load_bias": 1.01,
+  "medium_load_bias": 1.3,
+  "high_load_bias": 1.4,
+  "low_load_threshold": 5,
+  "high_load_threshold": 15
+}

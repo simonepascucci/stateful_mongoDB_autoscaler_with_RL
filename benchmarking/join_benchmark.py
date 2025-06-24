@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 MongoDB Join Operations Benchmark Script
-Specialized benchmark for testing $match + $lookup operations with specific test cases
+Configurable benchmark for testing $match + $lookup operations with user-defined operation count
+Supports multi-threading for concurrent execution
 """
 
 import time
@@ -9,6 +10,10 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 import sys
 from datetime import datetime
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
+import copy
 
 
 class MongoDBJoinBenchmark:
@@ -19,6 +24,7 @@ class MongoDBJoinBenchmark:
         self.client = None
         self.db = None
         self.benchmark_results = {}
+        self.results_lock = threading.Lock()
         
     def connect(self):
         """Establish connection to MongoDB"""
@@ -40,6 +46,17 @@ class MongoDBJoinBenchmark:
             print(f"✗ Unexpected error during connection: {e}")
             return False
     
+    def create_thread_connection(self):
+        """Create a new MongoDB connection for thread-safe operations"""
+        try:
+            client = MongoClient(f"mongodb://{self.host}:{self.port}", 
+                               serverSelectionTimeoutMS=5000)
+            client.admin.command('ping')
+            return client[self.db_name]
+        except Exception as e:
+            print(f"✗ Failed to create thread connection: {e}")
+            return None
+    
     def check_collection(self, collection_name):
         """Check if collection exists and has data"""
         try:
@@ -56,17 +73,15 @@ class MongoDBJoinBenchmark:
             print(f"✗ Error checking collection: {e}")
             return False, 0
     
-    def run_single_join_test(self, from_collection, to_collection, match_conditions, 
-                            join_field, test_name):
-        """Run a single join test with $match + $lookup"""
-        print(f"\n{'='*80}")
-        print(f"EXECUTING: {test_name}")
-        print(f"From: {from_collection} → To: {to_collection}")
-        print(f"Match conditions: {match_conditions}")
-        print(f"Join field: {join_field}")
-        print(f"{'='*80}")
+    def run_single_join_operation(self, from_collection, to_collection, match_conditions, 
+                                 join_field, operation_id, thread_id=0, db_connection=None):
+        """Run a single join operation with $match + $lookup"""
+        if db_connection is None:
+            db_connection = self.db
+            
+        thread_info = f"[Thread-{thread_id}]" if thread_id > 0 else ""
         
-        collection = self.db[from_collection]
+        collection = db_connection[from_collection]
         
         # Define the join pipeline
         pipeline = [
@@ -80,12 +95,7 @@ class MongoDBJoinBenchmark:
             {"$limit": 1000}  # Limit to avoid excessive memory usage
         ]
         
-        print(f"Pipeline:")
-        for i, stage in enumerate(pipeline, 1):
-            print(f"  Stage {i}: {stage}")
-        
         try:
-            print(f"\nExecuting single join operation...")
             start_time = time.time()
             
             # Perform the join operation
@@ -95,261 +105,325 @@ class MongoDBJoinBenchmark:
             end_time = time.time()
             execution_time_ms = (end_time - start_time) * 1000
             
-            print(f"✓ Join operation completed successfully")
-            print(f"  Execution time: {execution_time_ms:.2f} ms")
-            print(f"  Documents matched: {len(result_list)}")
+            print(f"{thread_info} Operation {operation_id}: {execution_time_ms:.2f}ms, {len(result_list)} docs")
             
-            # Show sample result structure
-            if result_list:
-                sample_doc = result_list[0]
-                joined_count = len(sample_doc.get('joined_data', []))
-                print(f"  Sample document joined records: {joined_count}")
-                
-                # Show fields in sample document (excluding large arrays)
-                sample_fields = {k: v for k, v in sample_doc.items() 
-                               if k != 'joined_data'}
-                print(f"  Sample document fields: {list(sample_fields.keys())}")
-            
-            # Store results
+            # Store results (thread-safe)
             result = {
-                'name': test_name,
+                'operation_id': operation_id,
                 'from_collection': from_collection,
                 'to_collection': to_collection,
                 'match_conditions': match_conditions,
                 'join_field': join_field,
                 'execution_time_ms': execution_time_ms,
                 'documents_matched': len(result_list),
-                'success': True
+                'success': True,
+                'thread_id': thread_id,
+                'timestamp': datetime.now()
             }
             
-            self.benchmark_results[test_name] = result
+            with self.results_lock:
+                self.benchmark_results[f"op_{operation_id}_thread_{thread_id}"] = result
+            
             return result
             
         except Exception as e:
-            print(f"✗ Join operation failed: {e}")
+            execution_time_ms = 0
+            print(f"{thread_info} Operation {operation_id}: FAILED - {e}")
+            
             result = {
-                'name': test_name,
+                'operation_id': operation_id,
                 'from_collection': from_collection,
                 'to_collection': to_collection,
                 'match_conditions': match_conditions,
                 'join_field': join_field,
-                'execution_time_ms': 0,
+                'execution_time_ms': execution_time_ms,
                 'documents_matched': 0,
                 'success': False,
-                'error': str(e)
+                'error': str(e),
+                'thread_id': thread_id,
+                'timestamp': datetime.now()
             }
-            self.benchmark_results[test_name] = result
+            
+            with self.results_lock:
+                self.benchmark_results[f"op_{operation_id}_thread_{thread_id}"] = result
+            
             return result
     
-    def print_test_summary(self, result):
-        """Print summary for a single test"""
-        print(f"\n{'='*60}")
-        print(f"TEST SUMMARY: {result['name']}")
-        print(f"{'='*60}")
-        if result['success']:
-            print(f"✓ Status: SUCCESS")
-            print(f"  Execution time: {result['execution_time_ms']:.2f} ms")
-            print(f"  Documents matched: {result['documents_matched']}")
-            print(f"  Join direction: {result['from_collection']} → {result['to_collection']}")
-            print(f"  Join field: {result['join_field']}")
-            print(f"  Match conditions: {result['match_conditions']}")
-        else:
-            print(f"✗ Status: FAILED")
-            print(f"  Error: {result.get('error', 'Unknown error')}")
+    def worker_thread_function(self, operations_to_execute, thread_id, from_collection, 
+                              to_collection, match_conditions, join_field, results_queue):
+        """Function executed by each worker thread"""
+        thread_results = []
+        
+        # Create thread-specific database connection
+        db_connection = self.create_thread_connection()
+        if db_connection is None:
+            print(f"[Thread-{thread_id}] Failed to create database connection")
+            results_queue.put([])
+            return
+        
+        print(f"[Thread-{thread_id}] Starting {operations_to_execute} operations")
+        
+        try:
+            for i in range(operations_to_execute):
+                operation_id = thread_id * 1000 + i + 1  # Unique operation ID
+                
+                result = self.run_single_join_operation(
+                    from_collection=from_collection,
+                    to_collection=to_collection,
+                    match_conditions=match_conditions,
+                    join_field=join_field,
+                    operation_id=operation_id,
+                    thread_id=thread_id,
+                    db_connection=db_connection
+                )
+                thread_results.append(result)
+                
+        except Exception as e:
+            print(f"[Thread-{thread_id}] Error: {e}")
+        finally:
+            # Close thread-specific connection
+            if hasattr(db_connection, 'client'):
+                db_connection.client.close()
+            
+            print(f"[Thread-{thread_id}] Completed {len(thread_results)} operations")
+        
+        results_queue.put(thread_results)
     
-    def print_final_summary(self):
-        """Print comprehensive final summary"""
+    def distribute_operations_to_threads(self, total_operations, num_threads):
+        """Distribute operations across threads"""
+        operations_per_thread = total_operations // num_threads
+        remainder = total_operations % num_threads
+        
+        distribution = []
+        for i in range(num_threads):
+            # Some threads get one extra operation if there's a remainder
+            current_thread_ops = operations_per_thread + (1 if i < remainder else 0)
+            distribution.append(current_thread_ops)
+        
+        return distribution
+    
+    def print_final_summary(self, num_threads, total_operations, total_execution_time, 
+                           from_collection, to_collection, match_conditions, join_field):
+        """Print comprehensive final summary including threading information"""
         print(f"\n{'='*100}")
-        print(f"COMPREHENSIVE JOIN BENCHMARK RESULTS")
+        print(f"MONGODB JOIN BENCHMARK RESULTS")
         print(f"{'='*100}")
         
         if not self.benchmark_results:
             print("No benchmark results to display")
             return
         
-        successful_tests = [r for r in self.benchmark_results.values() if r['success']]
-        failed_tests = [r for r in self.benchmark_results.values() if not r['success']]
+        successful_operations = [r for r in self.benchmark_results.values() if r['success']]
+        failed_operations = [r for r in self.benchmark_results.values() if not r['success']]
         
-        print(f"Total tests executed: {len(self.benchmark_results)}")
-        print(f"Successful tests: {len(successful_tests)}")
-        print(f"Failed tests: {len(failed_tests)}")
+        print(f"EXECUTION OVERVIEW:")
+        print(f"  Total threads used: {num_threads}")
+        print(f"  Total operations executed: {len(self.benchmark_results)}")
+        print(f"  Successful operations: {len(successful_operations)}")
+        print(f"  Failed operations: {len(failed_operations)}")
+        print(f"  Total execution time: {total_execution_time:.2f} seconds")
+        print(f"  Operations per second: {len(successful_operations) / total_execution_time:.2f} ops/sec")
         
-        if successful_tests:
-            print(f"\nDETAILED RESULTS:")
-            print(f"{'Test Name':<40} {'Direction':<20} {'Join Field':<12} {'Time(ms)':<10} {'Docs':<8}")
-            print(f"{'-'*40} {'-'*20} {'-'*12} {'-'*10} {'-'*8}")
-            
-            for result in successful_tests:
-                direction = f"{result['from_collection']} → {result['to_collection']}"
-                if len(direction) > 19:
-                    direction = direction[:16] + "..."
-                
-                print(f"{result['name']:<40} {direction:<20} "
-                      f"{result['join_field']:<12} {result['execution_time_ms']:<10.2f} "
-                      f"{result['documents_matched']:<8}")
-            
+        print(f"\nOPERATION CONFIGURATION:")
+        print(f"  From collection: {from_collection}")
+        print(f"  To collection: {to_collection}")
+        print(f"  Join field: {join_field}")
+        print(f"  Match conditions: {match_conditions}")
+        
+        # Thread distribution analysis
+        thread_distribution = {}
+        for result in self.benchmark_results.values():
+            thread_id = result.get('thread_id', 0)
+            if thread_id not in thread_distribution:
+                thread_distribution[thread_id] = {'total': 0, 'successful': 0, 'failed': 0, 'total_time': 0}
+            thread_distribution[thread_id]['total'] += 1
+            if result['success']:
+                thread_distribution[thread_id]['successful'] += 1
+                thread_distribution[thread_id]['total_time'] += result['execution_time_ms']
+            else:
+                thread_distribution[thread_id]['failed'] += 1
+        
+        print(f"\nTHREAD DISTRIBUTION:")
+        print(f"{'Thread':<8} {'Total':<8} {'Success':<8} {'Failed':<8} {'Avg Time(ms)':<15}")
+        print(f"{'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*15}")
+        for thread_id in sorted(thread_distribution.keys()):
+            stats = thread_distribution[thread_id]
+            avg_time = stats['total_time'] / stats['successful'] if stats['successful'] > 0 else 0
+            print(f"{thread_id:<8} {stats['total']:<8} {stats['successful']:<8} {stats['failed']:<8} {avg_time:<15.2f}")
+        
+        if successful_operations:
             # Performance analysis
             print(f"\nPERFORMANCE ANALYSIS:")
             
-            # Group by direction
-            c1_to_c2_tests = [r for r in successful_tests if 'C1 → C2' in r['name']]
-            c2_to_c1_tests = [r for r in successful_tests if 'C2 → C1' in r['name']]
+            # Overall statistics
+            all_times = [r['execution_time_ms'] for r in successful_operations]
+            all_docs = [r['documents_matched'] for r in successful_operations]
             
-            if c1_to_c2_tests:
-                avg_time_c1_c2 = sum(r['execution_time_ms'] for r in c1_to_c2_tests) / len(c1_to_c2_tests)
-                avg_docs_c1_c2 = sum(r['documents_matched'] for r in c1_to_c2_tests) / len(c1_to_c2_tests)
-                print(f"\nC1 → C2 Direction (Collection 1 to Collection 2):")
-                print(f"  Average execution time: {avg_time_c1_c2:.2f} ms")
-                print(f"  Average documents matched: {avg_docs_c1_c2:.1f}")
+            avg_time = sum(all_times) / len(all_times)
+            min_time = min(all_times)
+            max_time = max(all_times)
+            avg_docs = sum(all_docs) / len(all_docs)
+            
+            print(f"\nOVERALL PERFORMANCE:")
+            print(f"  Total successful operations: {len(successful_operations)}")
+            print(f"  Average execution time: {avg_time:.2f} ms")
+            print(f"  Minimum execution time: {min_time:.2f} ms")
+            print(f"  Maximum execution time: {max_time:.2f} ms")
+            print(f"  Time standard deviation: {(sum((t - avg_time) ** 2 for t in all_times) / len(all_times)) ** 0.5:.2f} ms")
+            print(f"  Average documents matched: {avg_docs:.1f}")
+            print(f"  Total documents processed: {sum(all_docs):,}")
+            
+            # Percentiles
+            sorted_times = sorted(all_times)
+            p50 = sorted_times[len(sorted_times) // 2]
+            p95 = sorted_times[int(len(sorted_times) * 0.95)]
+            p99 = sorted_times[int(len(sorted_times) * 0.99)]
+            
+            print(f"\nPERFORMANCE PERCENTILES:")
+            print(f"  50th percentile (median): {p50:.2f} ms")
+            print(f"  95th percentile: {p95:.2f} ms")
+            print(f"  99th percentile: {p99:.2f} ms")
+            
+            # Thread performance comparison
+            if num_threads > 1:
+                print(f"\nTHREAD PERFORMANCE COMPARISON:")
+                thread_times = {}
+                for result in successful_operations:
+                    thread_id = result.get('thread_id', 0)
+                    if thread_id not in thread_times:
+                        thread_times[thread_id] = []
+                    thread_times[thread_id].append(result['execution_time_ms'])
                 
-                fastest_c1_c2 = min(c1_to_c2_tests, key=lambda x: x['execution_time_ms'])
-                slowest_c1_c2 = max(c1_to_c2_tests, key=lambda x: x['execution_time_ms'])
-                print(f"  Fastest test: {fastest_c1_c2['name']} ({fastest_c1_c2['execution_time_ms']:.2f} ms)")
-                print(f"  Slowest test: {slowest_c1_c2['name']} ({slowest_c1_c2['execution_time_ms']:.2f} ms)")
-            
-            if c2_to_c1_tests:
-                avg_time_c2_c1 = sum(r['execution_time_ms'] for r in c2_to_c1_tests) / len(c2_to_c1_tests)
-                avg_docs_c2_c1 = sum(r['documents_matched'] for r in c2_to_c1_tests) / len(c2_to_c1_tests)
-                print(f"\nC2 → C1 Direction (Collection 2 to Collection 1):")
-                print(f"  Average execution time: {avg_time_c2_c1:.2f} ms")
-                print(f"  Average documents matched: {avg_docs_c2_c1:.1f}")
+                print(f"{'Thread':<8} {'Operations':<12} {'Avg Time(ms)':<15} {'Min Time(ms)':<15} {'Max Time(ms)':<15}")
+                print(f"{'-'*8} {'-'*12} {'-'*15} {'-'*15} {'-'*15}")
                 
-                fastest_c2_c1 = min(c2_to_c1_tests, key=lambda x: x['execution_time_ms'])
-                slowest_c2_c1 = max(c2_to_c1_tests, key=lambda x: x['execution_time_ms'])
-                print(f"  Fastest test: {fastest_c2_c1['name']} ({fastest_c2_c1['execution_time_ms']:.2f} ms)")
-                print(f"  Slowest test: {slowest_c2_c1['name']} ({slowest_c2_c1['execution_time_ms']:.2f} ms)")
-            
-            # Directional comparison
-            if c1_to_c2_tests and c2_to_c1_tests:
-                print(f"\nDIRECTIONAL COMPARISON:")
-                if avg_time_c1_c2 < avg_time_c2_c1:
-                    faster_direction = "C1 → C2"
-                    performance_ratio = avg_time_c2_c1 / avg_time_c1_c2
-                else:
-                    faster_direction = "C2 → C1"
-                    performance_ratio = avg_time_c1_c2 / avg_time_c2_c1
+                thread_avg_times = []
+                for thread_id in sorted(thread_times.keys()):
+                    times = thread_times[thread_id]
+                    avg_t = sum(times) / len(times)
+                    min_t = min(times)
+                    max_t = max(times)
+                    count = len(times)
+                    thread_avg_times.append(avg_t)
+                    print(f"{thread_id:<8} {count:<12} {avg_t:<15.2f} {min_t:<15.2f} {max_t:<15.2f}")
                 
-                print(f"  Faster direction: {faster_direction}")
-                print(f"  Performance ratio: {performance_ratio:.2f}x faster")
-                print(f"  Time difference: {abs(avg_time_c1_c2 - avg_time_c2_c1):.2f} ms")
+                # Thread performance variance
+                if len(thread_avg_times) > 1:
+                    thread_avg = sum(thread_avg_times) / len(thread_avg_times)
+                    thread_variance = sum((t - thread_avg) ** 2 for t in thread_avg_times) / len(thread_avg_times)
+                    thread_std = thread_variance ** 0.5
+                    print(f"\nThread performance variance: {thread_std:.2f} ms")
             
-            # Join field analysis
-            first_name_tests = [r for r in successful_tests if r['join_field'] == 'first_name']
-            country_tests = [r for r in successful_tests if r['join_field'] == 'country']
-            
-            if first_name_tests:
-                avg_time_fn = sum(r['execution_time_ms'] for r in first_name_tests) / len(first_name_tests)
-                print(f"\nFIRST_NAME JOIN ANALYSIS:")
-                print(f"  Tests performed: {len(first_name_tests)}")
-                print(f"  Average execution time: {avg_time_fn:.2f} ms")
-            
-            if country_tests:
-                avg_time_country = sum(r['execution_time_ms'] for r in country_tests) / len(country_tests)
-                print(f"\nCOUNTRY JOIN ANALYSIS:")
-                print(f"  Tests performed: {len(country_tests)}")
-                print(f"  Average execution time: {avg_time_country:.2f} ms")
-            
-            if first_name_tests and country_tests:
-                if avg_time_fn < avg_time_country:
-                    faster_field = "first_name"
-                    field_ratio = avg_time_country / avg_time_fn
-                else:
-                    faster_field = "country"
-                    field_ratio = avg_time_fn / avg_time_country
+            # Concurrency analysis
+            if num_threads > 1:
+                print(f"\nCONCURRENCY ANALYSIS:")
+                estimated_sequential_time = sum(all_times) / 1000  # Convert to seconds
+                actual_parallel_time = total_execution_time
+                theoretical_speedup = estimated_sequential_time / actual_parallel_time if actual_parallel_time > 0 else 0
+                efficiency = (theoretical_speedup / num_threads) * 100 if num_threads > 0 else 0
                 
-                print(f"\nJOIN FIELD COMPARISON:")
-                print(f"  Faster join field: {faster_field}")
-                print(f"  Performance ratio: {field_ratio:.2f}x faster")
+                print(f"  Estimated sequential execution time: {estimated_sequential_time:.2f} seconds")
+                print(f"  Actual parallel execution time: {actual_parallel_time:.2f} seconds")
+                print(f"  Theoretical speedup: {theoretical_speedup:.2f}x")
+                print(f"  Parallel efficiency: {efficiency:.1f}%")
+                
+                # Throughput analysis
+                sequential_ops_per_sec = total_operations / estimated_sequential_time
+                parallel_ops_per_sec = total_operations / actual_parallel_time
+                
+                print(f"  Sequential throughput: {sequential_ops_per_sec:.2f} ops/sec")
+                print(f"  Parallel throughput: {parallel_ops_per_sec:.2f} ops/sec")
+                print(f"  Throughput improvement: {parallel_ops_per_sec / sequential_ops_per_sec:.2f}x")
         
-        if failed_tests:
-            print(f"\nFAILED TESTS:")
-            for result in failed_tests:
-                print(f"  ✗ {result['name']}: {result.get('error', 'Unknown error')}")
+        if failed_operations:
+            print(f"\nFAILED OPERATIONS:")
+            error_summary = {}
+            for result in failed_operations:
+                error = result.get('error', 'Unknown error')
+                thread_id = result.get('thread_id', 0)
+                if error not in error_summary:
+                    error_summary[error] = []
+                error_summary[error].append(thread_id)
+            
+            for error, threads in error_summary.items():
+                print(f"  ✗ {error}: {len(threads)} operation(s) in thread(s) {sorted(set(threads))}")
     
-    def run_comprehensive_join_benchmark(self, collection1, collection2):
-        """Run comprehensive join benchmark with predefined test cases"""
+    def run_join_benchmark(self, from_collection, to_collection, match_conditions, 
+                          join_field, total_operations, num_threads=1):
+        """Run join benchmark with configurable operation count and threading"""
         print(f"\n{'='*100}")
-        print(f"MONGODB COMPREHENSIVE JOIN BENCHMARK")
+        print(f"MONGODB JOIN BENCHMARK")
         print(f"{'='*100}")
-        print(f"Collection 1: {collection1}")
-        print(f"Collection 2: {collection2}")
-        print(f"Test Plan:")
-        print(f"  • 6 total tests (3 per direction)")
-        print(f"  • 2 tests joining on 'first_name' per direction")
-        print(f"  • 1 test joining on 'country' per direction")
-        print(f"  • Multi-field match conditions to reduce results")
-        print(f"  • Single operation per test for precise measurement")
+        print(f"From collection: {from_collection}")
+        print(f"To collection: {to_collection}")
+        print(f"Join field: {join_field}")
+        print(f"Match conditions: {match_conditions}")
+        print(f"Total operations: {total_operations:,}")
+        print(f"Number of threads: {num_threads}")
         print(f"{'='*100}")
         
         overall_start = time.time()
         
-        # Define test cases
-        test_cases = [
-            # Collection 1 → Collection 2 tests
-            {
-                'from_collection': collection1,
-                'to_collection': collection2,
-                'match_conditions': {"first_name": "Charles", "last_name": "Miller"},
-                'join_field': 'first_name',
-                'test_name': 'C1 → C2: first_name join (Charles Miller)'
-            },
-            {
-                'from_collection': collection1,
-                'to_collection': collection2,
-                'match_conditions': {"first_name": "John", "age": {"$gte": 25}},
-                'join_field': 'first_name',
-                'test_name': 'C1 → C2: first_name join (John, age≥25)'
-            },
-            {
-                'from_collection': collection1,
-                'to_collection': collection2,
-                'match_conditions': {"country": "USA", "age": {"$lt": 40}},
-                'join_field': 'country',
-                'test_name': 'C1 → C2: country join (USA, age<40)'
-            },
-            
-            # Collection 2 → Collection 1 tests
-            {
-                'from_collection': collection2,
-                'to_collection': collection1,
-                'match_conditions': {"first_name": "Charles", "last_name": "Miller"},
-                'join_field': 'first_name',
-                'test_name': 'C2 → C1: first_name join (Charles Miller)'
-            },
-            {
-                'from_collection': collection2,
-                'to_collection': collection1,
-                'match_conditions': {"first_name": "John", "age": {"$gte": 25}},
-                'join_field': 'first_name',
-                'test_name': 'C2 → C1: first_name join (John, age≥25)'
-            },
-            {
-                'from_collection': collection2,
-                'to_collection': collection1,
-                'match_conditions': {"country": "USA", "age": {"$lt": 40}},
-                'join_field': 'country',
-                'test_name': 'C2 → C1: country join (USA, age<40)'
-            }
-        ]
+        # Distribute operations across threads
+        operations_distribution = self.distribute_operations_to_threads(total_operations, num_threads)
+        
+        print(f"\nOPERATION DISTRIBUTION:")
+        total_distributed = 0
+        for i, ops_count in enumerate(operations_distribution):
+            if ops_count > 0:
+                print(f"  Thread {i}: {ops_count:,} operations")
+                total_distributed += ops_count
+        print(f"  Total distributed: {total_distributed:,} operations")
         
         try:
-            print(f"\nExecuting {len(test_cases)} join tests...")
-            
-            for i, test_case in enumerate(test_cases, 1):
-                print(f"\n{'#'*20} TEST {i}/{len(test_cases)} {'#'*20}")
+            if num_threads == 1:
+                # Single-threaded execution
+                print(f"\nExecuting {total_operations:,} operations in single-threaded mode...")
+                db_connection = self.db
                 
-                result = self.run_single_join_test(
-                    from_collection=test_case['from_collection'],
-                    to_collection=test_case['to_collection'],
-                    match_conditions=test_case['match_conditions'],
-                    join_field=test_case['join_field'],
-                    test_name=test_case['test_name']
-                )
+                for i in range(total_operations):
+                    operation_id = i + 1
+                    if (i + 1) % max(1, total_operations // 10) == 0 or i == 0:
+                        print(f"Progress: {i + 1:,}/{total_operations:,} operations ({((i + 1) / total_operations * 100):.1f}%)")
+                    
+                    self.run_single_join_operation(
+                        from_collection=from_collection,
+                        to_collection=to_collection,
+                        match_conditions=match_conditions,
+                        join_field=join_field,
+                        operation_id=operation_id,
+                        thread_id=0,
+                        db_connection=db_connection
+                    )
+            else:
+                # Multi-threaded execution
+                print(f"\nExecuting {total_operations:,} operations in multi-threaded mode...")
+                results_queue = Queue()
+                threads = []
                 
-                self.print_test_summary(result)
+                # Start threads
+                for thread_id, ops_count in enumerate(operations_distribution):
+                    if ops_count > 0:  # Only start threads that have operations
+                        thread = threading.Thread(
+                            target=self.worker_thread_function,
+                            args=(ops_count, thread_id, from_collection, to_collection, 
+                                 match_conditions, join_field, results_queue)
+                        )
+                        thread.start()
+                        threads.append(thread)
                 
-                # Small delay between tests
-                time.sleep(0.5)
+                print(f"  Started {len(threads)} worker threads")
+                
+                # Wait for all threads to complete
+                for thread in threads:
+                    thread.join()
+                
+                print(f"\n✓ All {len(threads)} threads completed")
+                
+                # Collect results from queue
+                while not results_queue.empty():
+                    thread_results = results_queue.get()
+                    # Results are already stored in self.benchmark_results by worker threads
             
         except KeyboardInterrupt:
             print("\nBenchmark interrupted by user")
@@ -361,10 +435,11 @@ class MongoDBJoinBenchmark:
         overall_end = time.time()
         overall_time = overall_end - overall_start
         
-        print(f"\nTotal benchmark execution time: {overall_time:.2f} seconds")
+        print(f"\nBenchmark completed in {overall_time:.2f} seconds")
         
         # Print comprehensive summary
-        self.print_final_summary()
+        self.print_final_summary(num_threads, total_operations, overall_time, 
+                                from_collection, to_collection, match_conditions, join_field)
     
     def close(self):
         """Close the connection"""
@@ -377,31 +452,86 @@ def get_user_input():
     print("MongoDB Join Operations Benchmark Configuration")
     print("-" * 60)
     
-    # Collection 1
-    collection1 = input("Enter first collection name: ").strip()
-    if not collection1:
-        print("Collection name is required")
-        return None, None
+    # Collection 1 (from)
+    from_collection = input("Enter source collection name: ").strip()
+    if not from_collection:
+        print("Source collection name is required")
+        return None, None, None, None, None, None
     
-    # Collection 2
-    collection2 = input("Enter second collection name: ").strip()
-    if not collection2:
-        print("Collection name is required")
-        return None, None
+    # Collection 2 (to)
+    to_collection = input("Enter target collection name: ").strip()
+    if not to_collection:
+        print("Target collection name is required")
+        return None, None, None, None, None, None
     
-    return collection1, collection2
+    # Join field
+    join_field = input("Enter join field name (default 'first_name'): ").strip()
+    if not join_field:
+        join_field = 'first_name'
+    
+    # Match conditions
+    print("\nMatch conditions examples:")
+    print("  Simple: {\"first_name\": \"John\"}")
+    print("  Complex: {\"first_name\": \"John\", \"age\": {\"$gte\": 25}}")
+    match_input = input("Enter match conditions (JSON format, default {\"first_name\": \"John\"}): ").strip()
+    if not match_input:
+        match_conditions = {"first_name": "John"}
+    else:
+        try:
+            import ast
+            match_conditions = ast.literal_eval(match_input)
+        except:
+            print("Invalid JSON format, using default")
+            match_conditions = {"first_name": "John"}
+    
+    # Total operations
+    while True:
+        try:
+            ops_input = input("Enter total number of operations (default 100): ").strip()
+            if not ops_input:
+                total_operations = 100
+                break
+            
+            total_operations = int(ops_input)
+            if total_operations > 0:
+                break
+            else:
+                print("Number of operations must be greater than 0")
+                
+        except ValueError:
+            print("Please enter a valid integer")
+    
+    # Number of threads
+    while True:
+        try:
+            threads_input = input("Enter number of threads (1-36, default 1): ").strip()
+            if not threads_input:
+                num_threads = 1
+                break
+            
+            num_threads = int(threads_input)
+            if 1 <= num_threads <= 36:
+                break
+            else:
+                print("Number of threads must be between 1 and 36")
+                
+        except ValueError:
+            print("Please enter a valid integer")
+    
+    return from_collection, to_collection, join_field, match_conditions, total_operations, num_threads
 
 
 def main():
     """Main function"""
-    print("MongoDB Join Operations Benchmark Tool")
+    print("MongoDB Configurable Join Operations Benchmark Tool")
     print("=" * 60)
-    print("This tool performs 6 specific join tests:")
-    print("• 3 tests per direction (C1→C2, C2→C1)")
-    print("• 2 tests on 'first_name' field per direction")
-    print("• 1 test on 'country' field per direction")
-    print("• Multi-field match conditions for precise results")
-    print("• Single operation per test for accurate measurement")
+    print("This tool performs configurable join operations:")
+    print("• User-defined number of total operations")
+    print("• Configurable source and target collections")
+    print("• Configurable join field and match conditions")
+    print("• Multi-threading support (1-36 threads)")
+    print("• Operations distributed equally across threads")
+    print("• Standardized pipeline: $match + $lookup + $limit")
     print("=" * 60)
     
     # Initialize benchmark
@@ -414,40 +544,59 @@ def main():
     
     try:
         # Get user input
-        collection1, collection2 = get_user_input()
-        
-        if not all([collection1, collection2]):
+        result = get_user_input()
+        if None in result:
             print("Invalid input provided")
             return 1
         
+        from_collection, to_collection, join_field, match_conditions, total_operations, num_threads = result
+        
         # Validate collections
         print(f"\nValidating collections...")
-        c1_valid, c1_count = benchmark.check_collection(collection1)
-        c2_valid, c2_count = benchmark.check_collection(collection2)
+        from_valid, from_count = benchmark.check_collection(from_collection)
+        to_valid, to_count = benchmark.check_collection(to_collection)
         
-        if not c1_valid or not c2_valid:
+        if not from_valid or not to_valid:
             response = input("One or more collections validation failed. Continue anyway? (y/N): ").strip().lower()
             if response != 'y':
                 print("Benchmark cancelled")
                 return 1
         
-        print(f"\nCollection information:")
-        print(f"  {collection1}: {c1_count:,} documents")
-        print(f"  {collection2}: {c2_count:,} documents")
+        print(f"\nBenchmark Configuration:")
+        print(f"  Source collection: {from_collection} ({from_count:,} documents)")
+        print(f"  Target collection: {to_collection} ({to_count:,} documents)")
+        print(f"  Join field: {join_field}")
+        print(f"  Match conditions: {match_conditions}")
+        print(f"  Total operations: {total_operations:,}")
+        print(f"  Number of threads: {num_threads}")
+        
+        # Show pipeline
+        print(f"\nPipeline to be executed:")
+        print(f"  1. $match: {match_conditions}")
+        print(f"  2. $lookup: join {from_collection}.{join_field} with {to_collection}.{join_field}")
+        print(f"  3. $limit: 1000 (to avoid excessive memory usage)")
         
         # Confirm test execution
-        print(f"\nReady to execute join benchmark tests:")
-        print(f"• Testing joins between '{collection1}' and '{collection2}'")
-        print(f"• 6 total tests will be executed")
-        print(f"• Each test performs exactly 1 join operation")
+        print(f"\nReady to execute benchmark:")
+        print(f"• {total_operations:,} join operations will be executed")
+        if num_threads > 1:
+            print(f"• Operations will be distributed across {num_threads} concurrent threads")
+            print(f"• Each thread will create its own database connection")
         
         response = input("\nProceed with benchmark? (Y/n): ").strip().lower()
         if response == 'n':
             print("Benchmark cancelled")
             return 0
         
-        # Run comprehensive join benchmark
-        benchmark.run_comprehensive_join_benchmark(collection1, collection2)
+        # Run join benchmark
+        benchmark.run_join_benchmark(
+            from_collection=from_collection,
+            to_collection=to_collection,
+            match_conditions=match_conditions,
+            join_field=join_field,
+            total_operations=total_operations,
+            num_threads=num_threads
+        )
         
     except KeyboardInterrupt:
         print("\nBenchmark interrupted by user")
