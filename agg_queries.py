@@ -46,7 +46,7 @@ def adjust_aggregation_queries(csv_file_path, output_file_path=None):
 # Example usage
 if __name__ == "__main__":
     # Replace 'your_dataset.csv' with the path to your full CSV file
-    input_file = 'combined.csv'
-    output_file = 'combined.csv'  # Optional: specify output file name
+    input_file = './datasets/galaxy_trace_processed.csv'
+    output_file = './datasets/galaxy_trace_processed.csv'  # Optional: specify output file name
     
     adjust_aggregation_queries(input_file, output_file)

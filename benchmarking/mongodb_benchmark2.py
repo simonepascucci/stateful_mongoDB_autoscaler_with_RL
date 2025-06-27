@@ -320,9 +320,9 @@ def get_user_input():
         collection = "usertable"
     
     # Field name
-    field = input("Enter field name to query (default: first_name): ").strip()
+    field = input("Enter field name to query (default: last_name): ").strip()
     if not field:
-        field = "first_name"
+        field = "last_name"
     
     # Number of threads
     while True:
@@ -339,8 +339,8 @@ def get_user_input():
     # Number of operations
     while True:
         try:
-            operations = input("Enter total number of operations (default: 1000): ").strip()
-            operations = int(operations) if operations else 1000
+            operations = input("Enter total number of operations (default: 200): ").strip()
+            operations = int(operations) if operations else 200
             if operations <= 0:
                 print("Number of operations must be positive")
                 continue

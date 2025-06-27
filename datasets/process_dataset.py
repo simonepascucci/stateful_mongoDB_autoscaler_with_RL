@@ -167,8 +167,8 @@ def process_galaxy_data(input_file, output_file):
 # Example usage
 if __name__ == "__main__":
     # Process the galaxy trace data
-    input_filename = "combined.csv"
-    output_filename = "combined_trace_processed.csv"
+    input_filename = "askalon_ee_trace_processed.csv"
+    output_filename = "askalon_ee_trace_processed.csv"
     
     try:
         processed_df = process_galaxy_data(input_filename, output_filename)
