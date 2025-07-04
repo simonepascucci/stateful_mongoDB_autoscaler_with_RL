@@ -26,8 +26,8 @@ plt.style.use('seaborn-v0_8-whitegrid')
 # --- 1. Load and Prepare the Data ---
 
 try:
-    #df = pd.read_csv('./datasets/combined_trace_processed.csv', sep=',', index_col=0)
-    df = pd.read_csv('output_scaled_timestamps.csv', sep=',', index_col=0)
+    df = pd.read_csv('./datasets/combined_trace_processed.csv', sep=',', index_col=0)
+    #df = pd.read_csv('output_scaled_timestamps.csv', sep=',', index_col=0)
 except FileNotFoundError:
     print("Error: 'askalon_ee_trace_processed.csv' not found. Please make sure the file is in the correct directory.")
     exit()
